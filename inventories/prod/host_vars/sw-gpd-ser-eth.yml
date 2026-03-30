@@ -1,0 +1,5 @@
+ansible_host: 10.10.250.26
+ansible_password: "{{ sw_gpd_ser_eth_pass }}"
+
+kd_ports:
+  - gi1/0/24

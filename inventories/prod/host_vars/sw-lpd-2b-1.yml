@@ -1,0 +1,27 @@
+ansible_host: 10.10.250.20
+ansible_password: "{{ sw_lpd_2b_1_pass }}"
+
+voip_ports:
+  - gi1/0/17
+  - gi1/0/21
+  - gi1/0/27
+  - gi1/0/31
+  - gi1/0/34
+  - gi1/0/40
+
+d_ports:
+  - gi1/0/2
+  - gi1/0/8
+  - gi1/0/12
+  - gi1/0/14
+  - gi1/0/16
+  - gi1/0/18
+  - gi1/0/22
+  - gi1/0/23
+  - gi1/0/32
+  
+ap_ports:
+  - gi1/0/5
+  - gi1/0/7
+  - gi1/0/9
+  - gi1/0/11

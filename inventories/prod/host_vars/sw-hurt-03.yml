@@ -1,0 +1,1 @@
+ansible_password: "{{ sw_hurt_03_pass }}"

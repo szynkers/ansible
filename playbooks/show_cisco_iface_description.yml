@@ -1,0 +1,5 @@
+- name: Wypluj opisy portów interfejsów Cisco SMB
+  hosts: switches_mroczen
+  gather_facts: false
+  roles:
+    - ciscosmb_iface_description

@@ -1,0 +1,57 @@
+- name: Pobierz interfejsy urządzenia z NetBox (REST)
+  delegate_to: localhost
+  ansible.builtin.uri:
+    url: "{{ netbox_url }}/api/dcim/interfaces/?device={{ inventory_hostname | urlencode }}&limit=0"
+    method: GET
+    headers:
+      Authorization: "Token {{ netbox_token }}"
+      Accept: "application/json"
+    validate_certs: false
+  register: nb_ifaces_raw
+
+- name: Zbuduj mapę interfejs -> host (device:interface) tylko z connected_endpoints
+  set_fact:
+    nb_iface_host_map: "{{ nb_iface_host_map | default({}) | combine({ item.name: host_str }) }}"
+  vars:
+    host_str: >-
+      {%- if item.connected_endpoints is defined and item.connected_endpoints and item.connected_endpoints|length > 0 -%}
+      {{ item.connected_endpoints[0].device.name }}:{{ item.connected_endpoints[0].name }}
+      {%- else -%}
+      {{ '' }}
+      {%- endif -%}
+  loop: "{{ nb_ifaces_raw.json.results | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Usuń puste (tam gdzie NetBox nie wyliczył końcówki)
+  set_fact:
+    nb_iface_host_map: "{{ nb_iface_host_map | dict2items | selectattr('value','truthy') | items2dict }}"
+
+- name: Interfejs -> sama nazwa urządzenia (bez ":port")
+  set_fact:
+    nb_iface_desc_map: >-
+      {{
+        dict(
+          (nb_iface_host_map | dict2items | map(attribute='key'))
+          | zip(
+              (nb_iface_host_map | dict2items
+               | map(attribute='value')
+               | map('regex_replace', ':.*$', '')
+              )
+            )
+        )
+      }}
+
+- debug:
+    var: nb_iface_desc_map
+
+- name: Ustaw opis na portach na podstawie NetBox (hostname)
+  community.ciscosmb.command:
+    commands:
+      - conf t
+      - "int {{ item.key }}"
+      - "description {{ item.value }}"
+      - end
+  loop: "{{ nb_iface_desc_map | dict2items }}"
+  loop_control:
+    label: "{{ item.key }} -> {{ item.value }}"

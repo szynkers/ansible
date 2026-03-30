@@ -1,0 +1,4 @@
+- name: Zapisz konfigurację switcha Cisco SMB
+  community.ciscosmb.command:
+    commands:
+      - write memory

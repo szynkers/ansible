@@ -1,0 +1,336 @@
+- name: Query WireGuard peers via curl (sanitize)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    curl -sk --fail \
+      -u 'lszymkowiak:{{ rt_mroczen_pass }}' \
+      -H 'Accept: application/json' \
+      'http://{{ ansible_host }}/rest/interface/wireguard/peers' \
+    | iconv -f utf-8 -t utf-8 -c
+  args:
+    executable: /bin/bash
+  delegate_to: localhost
+  register: wg_raw
+  changed_when: false
+
+- name: Parse JSON
+  ansible.builtin.set_fact:
+    wg_peers: "{{ wg_raw.stdout | from_json }}"
+
+
+###########################################################################
+# 1) NetBox: pobierz device_id po nazwie
+###########################################################################
+- name: NetBox - get device by name
+  ansible.builtin.uri:
+    url: "{{ netbox_url.rstrip('/') }}/api/dcim/devices/?name={{ netbox_device_name | urlencode }}"
+    method: GET
+    headers:
+      Authorization: "Token {{ netbox_token }}"
+      Accept: "application/json"
+    validate_certs: false
+    return_content: true
+    status_code: 200
+    use_proxy: false
+  delegate_to: localhost
+  register: nb_device_raw
+  no_log: true
+
+- name: Fail if NetBox response is not JSON (show diagnostics)
+  ansible.builtin.fail:
+    msg: |
+      NetBox did not return JSON.
+      status={{ nb_device_raw.status | default('') }}
+      content_type={{ nb_device_raw.content_type | default('') }}
+      first_200={{ (nb_device_raw.content | default(''))[0:200] }}
+      url={{ nb_device_raw.url | default('') }}
+  when: nb_device_raw.json is not defined
+
+- name: Fail if device not found in NetBox
+  ansible.builtin.fail:
+    msg: "NetBox device '{{ netbox_device_name }}' not found."
+  when: (nb_device_raw.json.count | int) == 0
+
+- name: Set nb_device_id
+  ansible.builtin.set_fact:
+    nb_device_id: "{{ (nb_device_raw.json.results | first).id }}"
+
+
+###########################################################################
+# 2) NetBox: pobierz interfejsy urządzenia i zbuduj mapę name->id
+###########################################################################
+- name: NetBox - get device interfaces
+  ansible.builtin.uri:
+    url: "{{ netbox_url.rstrip('/') }}/api/dcim/interfaces/?device_id={{ nb_device_id }}&limit=0"
+    method: GET
+    headers:
+      Authorization: "Token {{ netbox_token }}"
+      Accept: "application/json"
+    validate_certs: false
+    return_content: true
+    status_code: 200
+    use_proxy: false
+  delegate_to: localhost
+  register: nb_ifaces_raw
+  no_log: true
+
+- name: Fail if interfaces response is not JSON
+  ansible.builtin.fail:
+    msg: |
+      NetBox interfaces endpoint did not return JSON.
+      status={{ nb_ifaces_raw.status | default('') }}
+      content_type={{ nb_ifaces_raw.content_type | default('') }}
+      first_200={{ (nb_ifaces_raw.content | default(''))[0:200] }}
+      url={{ nb_ifaces_raw.url | default('') }}
+  when: nb_ifaces_raw.json is not defined
+
+- name: Build iface map (name -> id)
+  ansible.builtin.set_fact:
+    nb_iface_map: "{{ dict(nb_ifaces_raw.json.results | map(attribute='name') | zip(nb_ifaces_raw.json.results | map(attribute='id'))) }}"
+
+###########################################################################
+# 3) NetBox: utwórz brakujące interfejsy (peer.name jako nazwa interfejsu)
+###########################################################################
+
+
+- name: NetBox - create missing peer interfaces (no renaming)
+  ansible.builtin.uri:
+    url: "{{ netbox_url.rstrip('/') }}/api/dcim/interfaces/"
+    method: POST
+    headers:
+      Authorization: "Token {{ (netbox_token | string | trim) }}"
+      Content-Type: "application/json"
+      Accept: "application/json"
+    body_format: json
+    body:
+      device: "{{ nb_device_id }}"
+      name: "{{ item.name }}"
+      type: "virtual"
+      description: "{{ item.comment | default('') }}"
+      enabled: true
+    validate_certs: false
+    return_content: true
+    status_code: [201, 400, 403]
+    use_proxy: false
+  loop: "{{ wg_peers }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: nb_iface_map[item.name] is not defined
+  delegate_to: localhost
+  register: nb_iface_create_results
+  no_log: true
+
+- name: Show NetBox interface create errors (if any)
+  ansible.builtin.debug:
+    msg:
+      - "peer={{ item.item.name }}"
+      - "status={{ item.status }}"
+      - "content_type={{ item.content_type | default('') }}"
+      - "body={{ (item.content | default(''))[0:300] }}"
+  loop: "{{ nb_iface_create_results.results }}"
+  when: item.status in [400, 403]
+
+- name: NetBox - refresh interfaces after create
+  ansible.builtin.uri:
+    url: "{{ netbox_url }}/dcim/interfaces/?device_id={{ nb_device_id }}&limit=0"
+    method: GET
+    headers:
+      Authorization: "Token {{ netbox_token }}"
+      Accept: "application/json"
+    validate_certs: "{{ netbox_validate_certs | default(false) }}"
+    return_content: true
+    status_code: 200
+    use_proxy: false
+  delegate_to: localhost
+  register: nb_ifaces_raw2
+  no_log: true
+
+- name: Refresh iface map (name -> id)
+  ansible.builtin.set_fact:
+    nb_iface_map: "{{ dict(nb_ifaces_raw2.json.results | map(attribute='name') | zip(nb_ifaces_raw2.json.results | map(attribute='id'))) }}"
+
+###########################################################################
+# 4) NetBox: IP adresy - ensure istnieją i są przypisane do interfejsu
+#    IP = peer['client-address'] (jeśli puste -> pomijamy)
+###########################################################################
+- name: NetBox - query IP existence for each peer client-address
+  ansible.builtin.uri:
+    url: "{{ netbox_url }}/ipam/ip-addresses/?address={{ item['client-address'] | urlencode }}"
+    method: GET
+    headers:
+      Authorization: "Token {{ netbox_token }}"
+      Accept: "application/json"
+    validate_certs: "{{ netbox_validate_certs | default(false) }}"
+    return_content: true
+    status_code: 200
+    use_proxy: false
+  loop: "{{ wg_peers }}"
+  when: item['client-address'] is defined and (item['client-address'] | length) > 0
+  delegate_to: localhost
+  register: nb_ip_queries
+  no_log: true
+
+- name: NetBox - create & assign IP if missing
+  ansible.builtin.uri:
+    url: "{{ netbox_url }}/ipam/ip-addresses/"
+    method: POST
+    headers:
+      Authorization: "Token {{ netbox_token }}"
+      Content-Type: "application/json"
+      Accept: "application/json"
+    body_format: json
+    body:
+      address: "{{ item.item['client-address'] }}"
+      assigned_object_type: "dcim.interface"
+      assigned_object_id: "{{ nb_iface_map[item.item.name] }}"
+      description: "{{ item.item.comment | default('') }}"
+    validate_certs: "{{ netbox_validate_certs | default(false) }}"
+    status_code: 201
+    return_content: true
+    use_proxy: false
+  loop: "{{ nb_ip_queries.results | default([]) }}"
+  when: (item.json.count | int) == 0
+  delegate_to: localhost
+  no_log: true
+
+- name: NetBox - reassign existing IP if assigned elsewhere
+  ansible.builtin.uri:
+    url: "{{ netbox_url }}/ipam/ip-addresses/{{ (item.json.results | first).id }}/"
+    method: PATCH
+    headers:
+      Authorization: "Token {{ netbox_token }}"
+      Content-Type: "application/json"
+      Accept: "application/json"
+    body_format: json
+    body:
+      assigned_object_type: "dcim.interface"
+      assigned_object_id: "{{ nb_iface_map[item.item.name] }}"
+      description: "{{ item.item.comment | default('') }}"
+    validate_certs: "{{ netbox_validate_certs | default(false) }}"
+    status_code: 200
+    return_content: true
+    use_proxy: false
+  loop: "{{ nb_ip_queries.results | default([]) }}"
+  when:
+    - (item.json.count | int) > 0
+    - ((item.json.results | first).assigned_object_id | default(0) | int) != (nb_iface_map[item.item.name] | int)
+  delegate_to: localhost
+  no_log: true
+
+###########################################################################
+# 5) NetBox VPN: 1 Tunnel per peer + termination na interfejsie peera (hub-side)
+###########################################################################
+- name: NetBox - query tunnel by name (per peer)
+  ansible.builtin.uri:
+    url: "{{ netbox_url }}/vpn/tunnels/?name={{ ('WG-' ~ netbox_device_name ~ '-' ~ item.name) | urlencode }}"
+    method: GET
+    headers:
+      Authorization: "Token {{ netbox_token }}"
+      Accept: "application/json"
+    validate_certs: "{{ netbox_validate_certs | default(false) }}"
+    return_content: true
+    status_code: 200
+    use_proxy: false
+  loop: "{{ wg_peers }}"
+  delegate_to: localhost
+  register: nb_tunnel_q
+  no_log: true
+
+- name: NetBox - create tunnel if missing
+  ansible.builtin.uri:
+    url: "{{ netbox_url }}/vpn/tunnels/"
+    method: POST
+    headers:
+      Authorization: "Token {{ netbox_token }}"
+      Content-Type: "application/json"
+      Accept: "application/json"
+    body_format: json
+    body:
+      name: "WG-{{ netbox_device_name }}-{{ item.item.name }}"
+      status: "active"
+      description: "{{ item.item.comment | default('') }}"
+    validate_certs: "{{ netbox_validate_certs | default(false) }}"
+    status_code: 201
+    return_content: true
+    use_proxy: false
+  loop: "{{ nb_tunnel_q.results }}"
+  when: (item.json.count | int) == 0
+  delegate_to: localhost
+  register: nb_tunnel_created
+  no_log: true
+
+- name: Build tunnel map (peer_name -> tunnel_id)
+  ansible.builtin.set_fact:
+    nb_tunnel_map: >-
+      {{
+        nb_tunnel_map | default({}) |
+        combine({
+          item.item.name:
+            (
+              (item.json.id)
+              if (item.json is defined and item.json.id is defined)
+              else ((item.json.results | first).id)
+            )
+        })
+      }}
+  loop: "{{ nb_tunnel_q.results }}"
+  when: (item.json.count | int) > 0
+
+- name: Add created tunnels to tunnel map
+  ansible.builtin.set_fact:
+    nb_tunnel_map: "{{ nb_tunnel_map | default({}) | combine({ item.item.item.name: item.json.id }) }}"
+  loop: "{{ nb_tunnel_created.results | default([]) }}"
+  when: item.json is defined and item.json.id is defined
+
+- name: NetBox - check if tunnel termination exists (hub side)
+  ansible.builtin.uri:
+    url: >-
+      {{ netbox_url }}/vpn/tunnel-terminations/
+      ?tunnel_id={{ nb_tunnel_map[item.name] }}
+      &termination_type=dcim.interface
+      &termination_id={{ nb_iface_map[item.name] }}
+    method: GET
+    headers:
+      Authorization: "Token {{ netbox_token }}"
+      Accept: "application/json"
+    validate_certs: "{{ netbox_validate_certs | default(false) }}"
+    return_content: true
+    status_code: 200
+    use_proxy: false
+  loop: "{{ wg_peers }}"
+  delegate_to: localhost
+  register: nb_term_q
+  no_log: true
+
+- name: NetBox - create tunnel termination (hub side)
+  ansible.builtin.uri:
+    url: "{{ netbox_url }}/vpn/tunnel-terminations/"
+    method: POST
+    headers:
+      Authorization: "Token {{ netbox_token }}"
+      Content-Type: "application/json"
+      Accept: "application/json"
+    body_format: json
+    body:
+      tunnel: "{{ nb_tunnel_map[item.item.name] }}"
+      role: "hub"
+      termination_type: "dcim.interface"
+      termination_id: "{{ nb_iface_map[item.item.name] }}"
+    validate_certs: "{{ netbox_validate_certs | default(false) }}"
+    status_code: 201
+    return_content: true
+    use_proxy: false
+  loop: "{{ nb_term_q.results }}"
+  when: (item.json.count | int) == 0
+  delegate_to: localhost
+  no_log: true
+
+###########################################################################
+# 6) Podsumowanie
+###########################################################################
+- name: Summary
+  ansible.builtin.debug:
+    msg:
+      - "Peers processed: {{ wg_peers | length }}"
+      - "NetBox device: {{ netbox_device_name }} (id={{ nb_device_id }})"
+      - "Interfaces known: {{ nb_iface_map | length }}"
+      - "Tunnels known: {{ nb_tunnel_map | length }}"

@@ -1,0 +1,2 @@
+ansible_host: 10.10.250.14
+ansible_password: "{{ sw_gpd_sa_pass }}"

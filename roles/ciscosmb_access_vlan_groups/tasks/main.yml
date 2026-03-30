@@ -1,0 +1,17 @@
+- name: Ustaw VLAN na portach wg grup (VLAN podany raz)
+  community.ciscosmb.command:
+    commands:
+      - conf t
+      - "int {{ item.1 }}"
+      - "switchport mode access"
+      - "switchport access vlan {{ item.0.vlan }}"
+      - end
+  loop: "{{ access_vlan_groups | subelements('ports') }}"
+  loop_control:
+    label: "{{ item.1 }} -> vlan {{ item.0.vlan }}"
+
+- name: Zapisz konfigurację (raz)
+  community.ciscosmb.command:
+    commands:
+      - write memory
+  when: save_config | bool

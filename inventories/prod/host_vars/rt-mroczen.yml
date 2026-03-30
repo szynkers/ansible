@@ -1,0 +1,5 @@
+ansible_host: 10.10.250.1
+ansible_user: lszymkowiak
+ansible_password: "{{ rt_mroczen_pass }}"
+#ansible_connection: community.routeros.routeros
+#ansible_network_os: community.network.routeros

@@ -1,0 +1,7 @@
+ansible_user: lszymkowiak
+ansible_password: '\wG=267993bZ5B-e'
+ansible_ssh_common_args: >-
+  -o StrictHostKeyChecking=no
+  -o UserKnownHostsFile=/dev/null
+  -o HostKeyAlgorithms=+ssh-rsa
+  -o PubkeyAcceptedAlgorithms=+ssh-rsa

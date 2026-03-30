@@ -1,0 +1,17 @@
+ansible_host: 10.10.250.10
+ansible_password: "{{ sw_lpd_09_pass }}"
+
+access_vlan_groups:
+  - vlan: 1090
+    ports: ["gi1/0/47"]
+  - vlan: 6
+    ports: ["gi1/0/4"]
+
+kd_ports:
+  - gi1/0/47
+
+d_ports:
+  - gi1/0/4
+
+ap_ports:
+  - gi1/0/1

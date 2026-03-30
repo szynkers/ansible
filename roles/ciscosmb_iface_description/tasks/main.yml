@@ -1,0 +1,9 @@
+- name: Run "show interfaces description"
+  community.ciscosmb.command:
+    commands:
+      - show interfaces description
+  register: iface_out
+
+- name: Display interface descriptions
+  ansible.builtin.debug:
+    var: iface_out.stdout_lines[0]

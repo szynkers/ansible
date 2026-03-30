@@ -1,0 +1,160 @@
+---
+- name: Configure VLANs (access + trunk) on Cisco SMB
+  hosts: switches
+  gather_facts: false
+
+  vars:
+    # Tagami możesz ograniczyć tylko do wybranych grup access (np. --tags voip,ap).
+    # Jeśli nie podasz żadnego z tych tagów, skonfiguruje wszystkie grupy zdefiniowane na hoście.
+    known_access_groups: [voip, ap, kd, dr]
+
+  tasks:
+    # -----------------------------
+    # 1) Wylicz grupy access do przetworzenia na podstawie tagów
+    # -----------------------------
+    - name: Determine selected access groups (based on tags)
+      ansible.builtin.set_fact:
+        selected_access_groups: >-
+          {{
+            (ansible_run_tags | intersect(known_access_groups)) if ((ansible_run_tags | intersect(known_access_groups)) | length > 0)
+            else
+            (access_ports | default({}) | dict2items | map(attribute='key') | list)
+          }}
+      tags: [always]
+
+    # -----------------------------
+    # 2) Ensure VLANs exist (opcjonalnie)
+    #    - Jeśli zdefiniujesz vlans_to_ensure -> użyje ich
+    #    - Jeśli nie -> weźmie VLANy z group_access_vlans dla wybranych grup
+    # -----------------------------
+    - name: Build vlans_to_ensure (from group_access_vlans) if not provided
+      ansible.builtin.set_fact:
+        vlans_to_ensure_eff: >-
+          {{
+            (vlans_to_ensure | default([])) if (vlans_to_ensure is defined)
+            else
+            (
+              selected_access_groups
+              | map('extract', group_access_vlans)
+              | select('defined')
+              | list
+            )
+          }}
+      when: group_access_vlans is defined
+      tags: [ensure_vlans]
+
+    - name: Ensure VLANs exist (VLAN database)
+      community.ciscosmb.command:
+        commands:
+          - conf t
+          - vlan database
+          - "vlan {{ item }}"
+          - exit
+          - end
+      loop: "{{ (vlans_to_ensure_eff | default(vlans_to_ensure | default([])) | unique) }}"
+      when: (vlans_to_ensure_eff | default(vlans_to_ensure | default([])) | length) > 0
+      tags: [ensure_vlans]
+
+    # -----------------------------
+    # 3) ACCESS: ustaw VLAN per grupa
+    #    Wymaga:
+    #      access_ports (host_vars):
+    #        voip: [gi1/0/1, gi1/0/2]
+    #        ap:   [gi1/0/10]
+    #        kd:   [gi1/0/20]
+    #
+    #      group_access_vlans (group_vars):
+    #        voip: 1040
+    #        ap:   1050
+    #        kd:   1070
+    # -----------------------------
+    - name: Validate VLAN mapping for selected access groups
+      ansible.builtin.assert:
+        that:
+          - group_access_vlans is defined
+          - group_access_vlans[item] is defined
+        fail_msg: "Brak mapowania VLAN w group_access_vlans dla grupy: {{ item }}"
+      loop: "{{ selected_access_groups }}"
+      when: (access_ports | default({})).get(item, []) | length > 0
+      tags: [access]
+
+    - name: Set ACCESS VLAN on ports (per group)
+      community.ciscosmb.command:
+        commands:
+          - conf t
+          - "int {{ item.1 }}"
+          - switchport mode access
+          - "switchport access vlan {{ group_access_vlans[item.0.key] }}"
+          - end
+      loop: >-
+        {{
+          (access_ports | default({}) | dict2items
+            | selectattr('key', 'in', selected_access_groups)
+            | list)
+          | subelements('value')
+        }}
+      when: (item.1 | default('') | string | length) > 0
+      tags: [access, voip, ap, kd, dr]
+
+    # -----------------------------
+    # 4) TRUNK: ustaw allowed VLANy na portach trunk (replace)
+    #    Wymaga:
+    #      trunk_ports (host_vars):
+    #        uplink: [gi1/0/24]
+    #        agg:    [gi1/0/23]
+    #
+    #      group_tagged_vlans (group_vars lub host_vars):
+    #        uplink: [1040,1050,1070]   # lista lub string "1040,1050,1070"
+    #        agg:    "1040,1050,1070"
+    # -----------------------------
+    - name: Set TRUNK allowed VLANs on ports (per group)
+      community.ciscosmb.command:
+        commands:
+          - conf t
+          - "int {{ item.1 }}"
+          - switchport mode trunk
+          - "switchport trunk allowed vlan {{ allowed_str }}"
+          - end
+      vars:
+        allowed_str: >-
+          {{
+            (group_tagged_vlans[item.0.key] | join(','))
+            if (group_tagged_vlans[item.0.key] is sequence and (group_tagged_vlans[item.0.key] is not string))
+            else
+            (group_tagged_vlans[item.0.key] | default(''))
+          }}
+      loop: "{{ (trunk_ports | default({}) | dict2items) | subelements('value') }}"
+      when:
+        - trunk_ports is defined
+        - group_tagged_vlans is defined
+        - group_tagged_vlans[item.0.key] is defined
+        - (item.1 | default('') | string | length) > 0
+        - (allowed_str | length) > 0
+      tags: [trunk]
+
+    # -----------------------------
+    # 5) SAVE (oddzielnie)
+    # -----------------------------
+    - name: Save configuration
+      community.ciscosmb.command:
+        commands:
+          - write memory
+      tags: [save]
+
+    # -----------------------------
+    # 6) VERIFY (opcjonalnie)
+    # -----------------------------
+    - name: Verify interface config for access+trunk ports
+      community.ciscosmb.command:
+        commands:
+          - "show running-config interface {{ item }}"
+      loop: >-
+        {{
+          (
+            (access_ports | default({}) | dict2items | map(attribute='value') | list | flatten)
+            +
+            (trunk_ports  | default({}) | dict2items | map(attribute='value') | list | flatten)
+          ) | unique
+        }}
+      when: (item | default('') | string | length) > 0
+      tags: [verify]

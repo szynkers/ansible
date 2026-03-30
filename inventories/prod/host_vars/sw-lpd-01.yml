@@ -1,0 +1,7 @@
+ansible_host: 10.10.250.2
+ansible_password: "{{ sw_lpd_01_pass }}"
+
+ap_ports:
+  - gi1/0/1
+  - gi1/0/3
+  - gi1/0/5

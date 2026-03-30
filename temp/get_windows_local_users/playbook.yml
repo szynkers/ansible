@@ -1,0 +1,15 @@
+---
+- name: List local users on domain-joined Windows PCs
+  hosts: domain_servers
+  gather_facts: no
+  tasks:
+    - name: Get local users (PowerShell Get-LocalUser)
+      ansible.windows.win_shell: |
+        Get-LocalUser |
+          Select-Object Name, Enabled, LastLogon |
+          ConvertTo-Json -Depth 3
+      register: local_users_raw
+
+    - name: Show parsed list
+      ansible.builtin.debug:
+        msg: "{{ local_users_raw.stdout | from_json }}"

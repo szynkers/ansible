@@ -1,0 +1,4 @@
+netbox_url: "https://192.168.2.69"
+netbox_token: "{{ vault_netbox_token }}"
+mikrotik_host: "10.10.250.1"
+netbox_device_name: rt-mroczen

@@ -1,0 +1,5 @@
+- name: VLAN na access portach
+  hosts: switches_mroczen
+  gather_facts: false
+  roles:
+    - ciscosmb_access_vlan_groups

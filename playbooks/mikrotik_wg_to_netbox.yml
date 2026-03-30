@@ -1,0 +1,5 @@
+- name: Synchro NetBox - pobierz peerów WireGuard i import do NetBox 
+  hosts: rt-mroczen
+  gather_facts: false
+  roles:
+    - pull_mikrotik_wg_to_netbox

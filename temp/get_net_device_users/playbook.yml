@@ -1,0 +1,129 @@
+- name: Przygotuj plik csv z uzytkownikami sieciowymi
+  hosts: localhost
+  gather_facts: no
+
+  vars:
+    out_file: /home/lszymkowiak/ansible-playbooks/get_net_device_users/users.csv
+
+  tasks:
+    - name: Utworz plik do zapisania dostepow (naglowek)
+      copy:
+        dest: "{{ out_file }}"
+        content: "hostname;username;group\n"
+        force: yes
+
+- name: Zapisz adminow UniFi do pliku lokalnie
+  hosts: localhost
+  gather_facts: no
+  vars:
+    ck_host: 10.30.250.10
+    out_file: /home/lszymkowiak/ansible-playbooks/get_net_device_users/users.csv
+
+  tasks:
+    - name: Pobierz CSV z Cloud Key
+      ansible.builtin.command: >
+        ssh root@{{ ck_host }}
+        "mongo --port 27117 ace --quiet --eval
+        'print(\"name;email;site;role\");
+        var sites = {};
+        db.site.find({}, {_id:1, name:1, desc:1}).forEach(function(s){
+          var sid = (s._id && s._id.str) ? s._id.str : s._id.valueOf();
+          sites[sid] = (s.desc || s.name || sid);
+        });
+        var admins = {};
+        db.admin.find({}, {_id:1, name:1, email:1}).forEach(function(a){
+          var aid = (a._id && a._id.str) ? a._id.str : a._id.valueOf();
+          admins[aid] = { name:(a.name||\"\"), email:(a.email||\"\") };
+        });
+        db.privilege.find({}, {admin_id:1, site_id:1, role:1, _id:0}).forEach(function(p){
+          var aid = String(p.admin_id);
+          var sid = String(p.site_id);
+          var a = admins[aid];
+          if (!a) return;
+          var site = sites[sid] || sid;
+          print(a.name + \";\" + a.email + \";\" + site + \";\" + (p.role||\"\"));
+        });'"
+
+      register: unifi_csv
+      changed_when: false
+
+    - name: Dopisz do CSV (username;group)
+      delegate_to: localhost
+      throttle: 1
+      lineinfile:
+        path: "{{ out_file }}"
+        line: "{{ item }}"
+        insertafter: EOF
+        create: yes
+      loop: "{{ unifi_csv.stdout_lines[1:] }}"
+      when: unifi_csv.stdout_lines[1:] | length > 1
+
+
+- name: Zbierz konta z MikroTik (RouterOS)
+  hosts: routers
+  gather_facts: no
+  serial: 1
+
+  vars:
+    out_file: /home/lszymkowiak/ansible-playbooks/get_net_device_users/users.csv
+
+  tasks:
+    - name: Pobierz lokalnych userów (RouterOS)
+      community.routeros.command:
+        commands:
+          - "/user print terse without-paging"
+      register: user_output
+      changed_when: false
+
+    - name: Wyciągnij pary username+group
+      set_fact:
+        user_pairs: "{{ user_output.stdout[0] | regex_findall('(?m)^\\s*\\d+\\s+name=([^\\s]+)\\s+group=([^\\s]+)') }}"
+
+    - name: Dopisz do CSV (username;group)
+      delegate_to: localhost
+      throttle: 1
+      lineinfile:
+        path: "{{ out_file }}"
+        line: "{{ inventory_hostname }};{{ item.0 }};{{ item.1 }}"
+        insertafter: EOF
+        create: yes
+      loop: "{{ user_pairs }}"
+      when: user_pairs | length > 0
+
+- name: Wyswietlenia aktualnych kont uzytkownikow na urzadzeniach sieciowych Cisco
+  hosts: switches
+  gather_facts: no
+  serial: 1
+  ignore_errors: yes
+
+  vars:
+    out_file: /home/lszymkowiak/ansible-playbooks/get_net_device_users/users.csv
+
+  tasks:
+    - name: Wyswietl aktualnych uzytkownikow
+      community.ciscosmb.command:
+        commands:
+          - show running-config | include username
+      register: user_output
+
+    - name: Wyciagnij same nazwy uzytkownikow
+      set_fact:
+        usernames: "{{ user_output.stdout[0] | regex_findall('(?m)^username\\s+(\\S+)') }}"
+
+
+    - name: Dopisz linie z uzytkownikami do pliku
+      delegate_to: localhost
+      throttle: 1
+      loop: "{{ usernames }}"
+      lineinfile:
+        path: "{{ out_file }}"
+        insertafter: EOF
+        line: "{{ inventory_hostname }};{{ item }}"
+        create: yes
+
+
+    - name: Wyswietl zawartosc pliku z dostepami
+      ansible.builtin.command:
+        cmd: cat {{ out_file }}
+      delegate_to: localhost
+      run_once: true

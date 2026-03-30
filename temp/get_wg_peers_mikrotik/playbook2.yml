@@ -1,0 +1,54 @@
+- name: Zbierz peery WireGuard z MikroTik (RouterOS)
+  hosts: 10.10.250.1
+  gather_facts: no
+
+  vars:
+    out_file: ./wireguard_peers.csv
+    ansible_user: lszymkowiak
+    ansible_password: Wh!t3W0lf66^
+    ansible_connection: ansible.netcommon.network_cli
+    ansible_network_os: community.network.routeros
+
+  tasks:
+    - name: Pobierz peery (RouterOS)
+      community.routeros.command:
+        commands:
+          - "/interface wireguard peers print terse without-paging"
+      register: user_output
+      changed_when: false
+
+    - name: Sklej łamane linie (rekord zaczyna się od numeru)
+      ansible.builtin.set_fact:
+        wg_text: "{{ user_output.stdout[0] | regex_replace('(?m)\\n(?!\\s*\\d+\\s)', ' ') }}"
+
+    - name: Podziel na rekordy (1 rekord = 1 peer)
+      ansible.builtin.set_fact:
+        wg_records: "{{ wg_text.splitlines() | reject('equalto','') | list }}"
+
+    - name: Zbuduj liste dict (stringi, bez list)
+      ansible.builtin.set_fact:
+        peers: >-
+          {%- set out=[] -%}
+          {%- for r in wg_records -%}
+          {%- set iface = (r | regex_findall('interface=([^\\s]+)') | first | default('')) -%}
+          {%- set name  = (r | regex_findall('name=(.*?)\\s+public-key=') | first | default('') | trim) -%}
+          {%- set ca    = (r | regex_findall('client-address=([0-9.\\s]+/\\d+)') | first | default('')) | regex_replace('\\s+','') -%}
+          {%- set aa    = (r | regex_findall('allowed-address=([0-9.\\s]+/\\d+)') | first | default('')) | regex_replace('\\s+','') -%}
+          {%- if iface != '' and ca != '' -%}
+          {%-   set _ = out.append({'interface': iface, 'name': name, 'client_address': ca, 'allowed_address': aa}) -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ out }}
+
+    - name: Zapisz CSV lokalnie (na kontrolerze Ansible)
+      ansible.builtin.copy:
+        dest: "{{ out_file }}"
+        mode: "0644"
+        content: |
+          interface,name,client_address,allowed_address
+          {% for p in peers | default([]) %}
+          {{ p.interface }},{{ p.name | replace(',', ' ') }},{{ p.client_address }},{{ p.allowed_address }}
+          {% endfor %}
+      delegate_to: localhost
+      run_once: true
+

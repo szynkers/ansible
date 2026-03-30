@@ -1,0 +1,44 @@
+- name: Zbierz peery WireGuard z MikroTik (RouterOS)
+  hosts: localhost
+  gather_facts: no
+
+  vars:
+    out_file: ./wireguard_peers.csv
+    router_host: 10.10.250.1
+    router_user: lszymkowiak
+    router_pass: Wh!t3W0lf66^
+
+  tasks:
+    - name: Pobierz WireGuard peers przez API (bez parsowania CLI)
+      community.routeros.api:
+        hostname: "{{ router_host }}"
+        username: "{{ router_user }}"
+        password: "{{ router_pass }}"
+        encoding: "UTF-8"
+        path: "interface wireguard peers"
+        extended_query:
+          attributes:
+            - .id
+            - interface
+            - name
+            - client-address
+      register: wg
+
+    - debug:
+        var: wg.msg
+
+    - name: Ustaw listę peerów (dopasuj ścieżkę do swojego register)
+      set_fact:
+        peers: "{{ wg.msg }}"          # <- ZMIEŃ na właściwą ścieżkę do tej listy
+
+    - name: Zapisz CSV lokalnie
+      ansible.builtin.copy:
+        dest: "./peers.csv"
+        mode: "0644"
+        content: |
+          id,interface,name,client_address
+          {% for p in peers %}
+          {{ p['id'] | default('') }}{{ p['interface'] | default('') }},{{ (p['name'] | default('')) | replace(',', ' ') }},{{ p['client-address'] | default('') }}
+          {% endfor %}
+      delegate_to: localhost
+      run_once: true

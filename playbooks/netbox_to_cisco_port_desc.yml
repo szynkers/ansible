@@ -1,0 +1,6 @@
+- name: Synchro NetBox - ustaw opisy portów interfejsów Cisco SMB
+  hosts: sw-prod-03
+  gather_facts: false
+  roles:
+    - pull_netbox_to_cisco
+    - save_ciscosmb_config

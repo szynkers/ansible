@@ -1,0 +1,12 @@
+ansible_host: 10.10.250.24
+ansible_password: "{{ sw_lpd_z_s1_pass }}"
+ansible_network_cli_ssh_type: paramiko
+ansible_paramiko_host_key_checking: false
+ansible_ssh_common_args: >-
+  -o StrictHostKeyChecking=no
+  -o UserKnownHostsFile=/dev/null
+  -o HostKeyAlgorithms=+ssh-rsa
+  -o PubkeyAcceptedAlgorithms=+ssh-rsa
+  
+voip_ports:
+  - gi1/0/5

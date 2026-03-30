@@ -1,0 +1,31 @@
+- name: Dolaczanie komputera do domeny AD
+  hosts: windows
+  gather_facts: no
+  vars:
+    domain_name: "echo.pl"
+    domain_user: "ECHO\\lszymkowiak"
+    domain_password: "66^Triger66^"
+
+  tasks:
+    - name: Ustaw hostname
+      ansible.windows.win_hostname:
+        name: KOMPUTER-001
+      register: rename
+
+    - name: Restart po zmianie nazwy
+      ansible.windows.win_reboot:
+      when: rename.reboot_required
+      
+    - name: Dołącz do domeny
+      ansible.windows.win_domain_membership:
+        dns_domain_name: "{{ domain_name }}"
+        domain_admin_user: "{{ domain_user }}"
+        domain_admin_password: "{{ domain_password }}"
+        state: domain
+        # opcjonalnie:
+        # ou: "OU=Komputery,OU=Biuro,DC=firma,DC=local"
+      register: domain_state
+
+    - name: Restart po dołączeniu do domeny
+      ansible.windows.win_reboot:
+      when: domain_state.reboot_required

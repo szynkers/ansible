@@ -1,0 +1,20 @@
+- name: Konfiguracja vlan na access portach
+  hosts: switches_ap
+  gather_facts: no
+
+  tasks:
+    - name: Ustaw VLAN na trunk
+      community.ciscosmb.command:
+        commands:
+          - conf t
+          - vlan 1070
+          - "int {{ item }}"
+          - switchport mode trunk
+          - "switchport trunk allowed vlan 1,1020,1030,1070,1250"
+          - "switchport trunk native vlan 1"
+          - end
+          - write memory
+      loop: "{{ ap_ports }}"
+      register: trunk_output
+
+

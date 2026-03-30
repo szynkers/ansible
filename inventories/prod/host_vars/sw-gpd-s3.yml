@@ -1,0 +1,6 @@
+ansible_host: 10.10.250.27
+ansible_password: "{{ sw_gpd_s3_pass }}"
+
+d_ports:
+  - gi1/0/4
+  - gi1/0/23

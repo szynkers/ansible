@@ -1,0 +1,135 @@
+- name: Issue certificates for switches
+  hosts: switches
+  gather_facts: no
+
+  vars:
+    step_ca_url: "https://smallstep-ca:9000"
+    step_root_ca: "certs/root_ca.crt"
+    step_provisioner: "Mirjan24"
+    cert_dir: "/var/www/html/certs"
+
+  tasks:
+    - name: Create temp file for step provisioner password
+      ansible.builtin.tempfile:
+        state: file
+        suffix: step-pass
+      register: step_passfile
+      delegate_to: localhost
+      run_once: true
+
+    - name: Write provisioner password into temp file
+      ansible.builtin.copy:
+        dest: "{{ step_passfile.path }}"
+        content: "{{ provisioning_password }}"
+        mode: "0600"
+      delegate_to: localhost
+      run_once: true
+
+    - name: Create temp file for p12 password
+      ansible.builtin.tempfile:
+        state: file
+        suffix: p12-pass
+      register: p12_passfile
+      delegate_to: localhost
+      run_once: true
+
+    - name: Write p12 password into temp file
+      ansible.builtin.copy:
+        dest: "{{ p12_passfile.path }}"
+        content: "{{ p12_password }}"
+        mode: "0600"
+      delegate_to: localhost
+      run_once: true
+
+    - name: Ensure cert directory for host exists
+      ansible.builtin.file:
+        path: "{{ cert_dir }}/{{ inventory_hostname }}"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      become: true
+      run_once: false
+
+    - name: Generate certificate and key for switch
+      ansible.builtin.command: >
+        step ca certificate
+        {{ switch_fqdn }}
+        {{ cert_dir }}/{{ inventory_hostname }}/device.crt
+        {{ cert_dir }}/{{ inventory_hostname }}/device.key
+        --san {{ switch_dns }}
+        --san {{ ansible_host }}
+        --provisioner-password-file {{ step_passfile.path }}
+        --ca-url {{ step_ca_url }}
+        --root {{ step_root_ca }}
+      args:
+        creates: "{{ cert_dir }}/{{ inventory_hostname }}/device.crt"
+      become: true
+      delegate_to: localhost
+
+    - name: Generate PKCS#12 bundle
+      ansible.builtin.command: >
+        step certificate p12
+        {{ cert_dir }}/{{ inventory_hostname }}/device.p12
+        {{ cert_dir }}/{{ inventory_hostname }}/device.crt
+        {{ cert_dir }}/{{ inventory_hostname }}/device.key
+        --ca {{ step_root_ca }}
+        --password-file {{ p12_passfile.path }}
+      args:
+        creates: "{{ cert_dir }}/{{ inventory_hostname }}/device.p12"
+      become: true
+      delegate_to: localhost
+
+    - name: Remove temp password file
+      ansible.builtin.file:
+        path: "{{ step_passfile.path }}"
+        state: absent
+      delegate_to: localhost
+      run_once: true
+
+    - name: Remove temp p12 password file
+      file:
+        path: "{{ p12_passfile.path }}"
+        state: absent
+      delegate_to: localhost
+      run_once: true
+
+- name: Configure HTTPS certificate on switches
+  hosts: switches
+  gather_facts: no
+
+  vars:
+    trustpoint_name: MIRJAN-CA
+    http_server_ip: placeholder
+    ca_cert_url: "http://{{ http_server_ip }}/ca/root_ca.crt"
+    p12_url: "http://{{ http_server_ip }}/certs/{{ inventory_hostname }}/device.p12"
+    p12_password: "{{ p12_password }}"   # from Vault
+
+  tasks:
+    - name: Create trustpoint base configuration
+      community.ciscosmb.command:
+        commands:
+          - conf t
+          - "crypto pki trustpoint {{ trustpoint_name }}"
+          - " enrollment url {{ ca_cert_url }}"
+          - " revocation-check none"
+          - exit
+          - end
+
+    - name: Import CA certificate from HTTP
+      community.ciscosmb.command:
+        commands:
+          - "crypto pki import {{ trustpoint_name }} certificate url {{ ca_cert_url }}"
+
+    - name: Import device certificate from PKCS12
+      community.ciscosmb.command:
+        commands:
+          - "crypto pki import {{ trustpoint_name }} pkcs12 url {{ p12_url }} password {{ p12_password }}"
+
+    - name: Enable HTTPS and bind trustpoint
+      community.ciscosmb.command:
+        commands:
+          - conf t
+          - ip http secure-server
+          - ip http secure-port 443
+          - "ip http secure-trustpoint {{ trustpoint_name }}"
+          - end

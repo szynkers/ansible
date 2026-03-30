@@ -1,0 +1,163 @@
+- name: Pull interface info to NetBox
+  hosts: switches
+  gather_facts: no
+
+  vars:
+    netbox_url: "https://192.168.2.69"
+    netbox_token: a23bb67be0c01d6d6e28a81f3ae5b06c9226158b
+    netbox_site: mroczen
+    validate_certs: false
+    ansible_command_timeout: 120
+
+  tasks:
+
+    - name: Prep session (no paging) + get descriptions
+      community.ciscosmb.command:
+        commands:
+          - terminal datadump
+          - terminal no prompt
+          - show interfaces description
+      vars:
+        ansible_command_timeout: 180
+      register: desc_out
+
+    - name: Init desc_map
+      ansible.builtin.set_fact:
+        desc_map: {}
+
+    - name: Build desc_map (iface -> description)
+      ansible.builtin.set_fact:
+        desc_map: "{{ desc_map | combine({ (iface | string): descr }) }}"
+      vars:
+        parts: "{{ item.split(maxsplit=1) }}"
+        iface: "{{ parts[0] }}"
+        descr: "{{ (parts[1] if (parts|length > 1) else '') | trim }}"
+      loop: "{{ desc_out.stdout[2].splitlines() }}"
+      when:
+        - item is match('^(gi|te)')   # dopasuj prefixy do swoich
+
+    - name: Get switchport per interface
+      community.ciscosmb.command:
+        commands:
+          - "show interfaces switchport {{ item }}"
+      vars:
+        ansible_command_timeout: 120
+      loop: "{{ desc_map.keys() | list }}"
+      register: swp_each
+
+    - name: Init interfaces
+      ansible.builtin.set_fact:
+        interfaces: []
+
+    - name: Normalize parsed interfaces (safe from LazyTemplateList)
+      ansible.builtin.set_fact:
+        interfaces: "{{ interfaces + [parsed] }}"
+      vars:
+        lines: "{{ item.stdout_lines[0] | default([]) }}"
+        name_line: "{{ (lines | select('match','^Name:') | list | first | default('')) }}"
+        admin_line: "{{ (lines | select('match','^Administrative Mode:') | list | first | default('')) }}"
+        oper_line: "{{ (lines | select('match','^Operational Mode:') | list | first | default('')) }}"
+        access_line: "{{ (lines | select('match','^Access Mode VLAN:') | list | first | default('')) }}"
+        native_line: "{{ (lines | select('match','^Trunking Native Mode VLAN:') | list | first | default('')) }}"
+        trunk_line: "{{ (lines | select('match','^Trunking VLANs:') | list | first | default('')) }}"
+
+        iface: "{{ (name_line | regex_replace('^Name:\\s*','') | trim) | string }}"
+        admin_mode: "{{ (admin_line | regex_replace('^Administrative Mode:\\s*','') | trim) | string }}"
+        oper_mode: "{{ (oper_line | regex_replace('^Operational Mode:\\s*','') | trim) | string }}"
+        access_vlan: "{{ (access_line | regex_replace('^Access Mode VLAN:\\s*','') | trim) | string }}"
+        native_vlan: "{{ (native_line | regex_replace('^Trunking Native Mode VLAN:\\s*','') | trim) | string }}"
+
+        trunk_first: "{{ (trunk_line | regex_replace('^Trunking VLANs:\\s*','') | trim) | string }}"
+        trunk_cont: "{{ (lines | select('match','^\\s+\\d') | list | map('trim') | reject('search','\\(Inactive\\)') | list) }}"
+        trunk_active_text: "{{ ([trunk_first] + trunk_cont) | reject('equalto','') | join('') | trim }}"
+
+        parsed:
+          name: "{{ iface }}"
+          description: "{{ desc_map.get(iface, '') }}"
+          admin_mode: "{{ admin_mode }}"
+          oper_mode: "{{ oper_mode }}"
+          untagged_vlan: >-
+            {% if admin_mode == 'access' %}{{ access_vlan }}
+            {% elif admin_mode == 'trunk' %}{{ native_vlan }}
+            {% else %}{{ access_vlan }}
+            {% endif %}
+          tagged_vlans_active: >-
+            {% if admin_mode == 'trunk' %}{{ trunk_active_text }}{% else %}{{ '' }}{% endif %}
+      loop: "{{ swp_each.results | default([]) }}"
+      when: swp_each is defined and (swp_each.results | default([]) | length > 0)
+      
+    - name: Build interfaces_nb (expand trunk VLANs and remove native from tagged)
+      ansible.builtin.set_fact:
+        interfaces_nb: "{{ interfaces_nb | default([]) + [ nb ] }}"
+      vars:
+        native: "{{ (item.untagged_vlan | trim | int) if (item.untagged_vlan | trim | length > 0) else omit }}"
+        # rozbij po przecinkach
+        tokens: "{{ (item.tagged_vlans_active | trim).split(',') if (item.tagged_vlans_active | trim | length > 0) else [] }}"
+        # zamień tokeny na listę int VLAN-ów (obsługa zakresów X-Y)
+        expanded: >-
+          {%- set out = [] -%}
+          {%- for t in tokens -%}
+            {%- set t2 = t | trim -%}
+            {%- if '-' in t2 -%}
+              {%- set a = (t2.split('-')[0] | int) -%}
+              {%- set b = (t2.split('-')[1] | int) -%}
+              {%- for v in range(a, b+1) -%}
+                {%- set _ = out.append(v) -%}
+              {%- endfor -%}
+            {%- elif t2|length > 0 -%}
+              {%- set _ = out.append(t2 | int) -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ out }}
+        # usuń native VLAN z tagged
+        expanded_wo_native: "{{ expanded | reject('equalto', native) | list }}"
+        nb:
+          name: "{{ item.name }}"
+          description: "{{ item.description }}"
+          enabled: "{{ item.oper_mode | lower == 'up' }}"   # albo admin_state jeśli masz
+          mode: >-
+            {% if item.admin_mode == 'access' %}Access
+            {% elif item.admin_mode == 'trunk' %}Tagged
+            {% else %}Tagged
+            {% endif %}
+          untagged_vid: "{{ native if native is not string else omit }}"
+          tagged_vids: "{{ expanded_wo_native }}"
+      loop: "{{ interfaces }}"
+      
+    - debug:
+        var: interfaces_nb
+
+    - name: Push to NetBox
+      delegate_to: localhost
+      netbox.netbox.netbox_device_interface:
+        netbox_url: "{{ netbox_url }}"
+        netbox_token: "{{ netbox_token }}"
+        validate_certs: false
+        data:
+          device: "{{ inventory_hostname }}"
+          name: "{{ item.name }}"
+          description: "{{ item.description | trim }}"
+          enabled: "{{ item.enabled }}"
+          mode: "{{ item.mode | trim }}"
+          
+          
+          untagged_vlan: "{{ {'vid': (item.untagged_vid | int)} if (item.untagged_vid is defined) else omit }}"
+
+          tagged_vlans: >-
+            {%- set out = [] -%}
+            {%- for v in (item.tagged_vids | default([])) -%}
+              {%- set _ = out.append({'vid': (v | int)}) -%}
+            {%- endfor -%}
+            {{ out if (out | length > 0) else omit }}
+
+
+        state: present
+      loop: "{{ interfaces_nb }}"
+      
+    - debug:
+        msg:
+          untagged_vlan_value: "{{ {'vid': (item.untagged_vid | int)} }}"
+          untagged_vlan_type: "{{ ({'vid': (item.untagged_vid | int)}) | type_debug }}"
+      loop: "{{ interfaces_nb }}"
+      loop_control:
+        label: "{{ item.name }}"

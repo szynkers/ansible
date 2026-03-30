@@ -1,0 +1,116 @@
+- name: Enforce interface settings from NetBox
+  hosts: swLPD-01
+  gather_facts: no
+
+  vars:
+    netbox_url: "https://192.168.2.69"
+    netbox_token: "{{ vault_netbox_token }}"
+    managed_tag: ansible-managed
+    save_config: false
+
+  tasks:
+    - name: Pobierz interfejsy z NetBox dla tego urządzenia
+      set_fact:
+        nb_ifaces: >-
+          {{ query('netbox.netbox.nb_lookup', 'interfaces',
+                   api_endpoint=netbox_url,
+                   token=netbox_token,
+                   validate_certs=false,
+                   api_filter='device=' ~ inventory_hostname ~ ' tag=' ~ managed_tag) }}
+
+    - debug:
+        msg:
+          count_nb_ifaces: "{{ nb_ifaces | length }}"
+          sample: "{{ (nb_ifaces | first) if (nb_ifaces|length>0) else 'EMPTY' }}"
+
+
+    - name: Odfiltruj tylko gi1/0/x i te1/0/x
+      set_fact:
+        ports: >-
+          {{
+            nb_ifaces
+            | map(attribute='value')
+            | selectattr('name', 'match', '^(gi|te)1/0/[0-9]+$')
+            | list
+          }}
+
+
+    - name: Ustaw shutdown/no shutdown zgodnie z NetBox Enabled
+      community.ciscosmb.command:
+        commands:
+          - configure
+          - "interface {{ item.name }}"
+          - "{{ 'no shutdown' if item.enabled else 'shutdown' }}"
+          - end
+      loop: "{{ ports }}"
+      
+    - name: Zbierz VLAN ID potrzebne z NetBox (untagged + tagged)
+      set_fact:
+        vlan_ids_needed: >-
+          {{
+            (
+              (ports | map(attribute='untagged_vlan') | select('truthy') | map(attribute='vid') | list)
+              +
+              (ports | map(attribute='tagged_vlans') | select('truthy') | list | flatten | map(attribute='vid') | list)
+            )
+            | unique | sort
+          }}
+          
+    - name: Sprawdź, że access ma ustawiony VLAN (untagged_vlan)
+      ansible.builtin.assert:
+        that:
+          - item.untagged_vlan is not none
+        fail_msg: "NetBox: {{ inventory_hostname }} {{ item.name }} ma mode=access, ale brak untagged_vlan"
+      loop: "{{ ports }}"
+      when: item.mode is not none and item.mode.value == 'access'
+
+    - name: Waliduj trunk/tagged w NetBox
+      ansible.builtin.assert:
+        that:
+          - item.untagged_vlan is not none
+          - item.mode.value != 'tagged' or (item.tagged_vlans | default([]) | length) > 0
+        fail_msg: "NetBox: {{ inventory_hostname }} {{ item.name }} trunk wymaga native(untagged_vlan); dla tagged wymaga tagged_vlans"
+      loop: "{{ ports }}"
+      when: item.mode is not none and item.mode.value in ['tagged','tagged-all']
+
+    - name: Ustaw VLAN i mode
+      community.ciscosmb.command:
+        commands: >-
+          {{
+            [
+              'configure terminal',
+              'interface ' ~ item.name,
+
+              ('no shutdown' if item.enabled else 'shutdown'),
+
+              
+              ('switchport mode access' if item.mode.value == 'access' else ''),
+              ('switchport access vlan ' ~ (item.untagged_vlan.vid | string) if item.mode.value == 'access' else ''),
+
+              
+              ('switchport mode trunk' if item.mode.value in ['tagged','tagged-all'] else ''),
+              ('switchport trunk native vlan ' ~ (item.untagged_vlan.vid | string) if item.mode.value in ['tagged','tagged-all'] else ''),
+
+              ('switchport trunk allowed vlan all' if item.mode.value == 'tagged-all' else ''),
+              (
+                'switchport trunk allowed vlan ' ~ (
+                  (item.tagged_vlans | default([]))
+                  | map(attribute='vid') | map('string') | join(',')
+                )
+                if item.mode.value == 'tagged' else ''
+              ),
+
+              'end'
+            ] | reject('equalto','') | list
+          }}
+      loop: "{{ ports }}"
+      register: smb_apply
+      
+    - debug:
+        var: smb_apply
+
+    - name: Zapisz konfigurację (CBS350)
+      community.ciscosmb.command:
+        commands:
+          - "write memory"
+      when: save_config

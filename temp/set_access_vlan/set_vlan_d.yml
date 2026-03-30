@@ -1,0 +1,15 @@
+- name: Konfiguracja vlan na access portach
+  hosts: switches_d
+  gather_facts: no
+
+  tasks:
+    - name: Ustawienie VLANu
+      community.ciscosmb.command:
+        commands:
+          - conf t
+          - 'int {{ item }}'
+          - switchport access vlan 1040
+          - end
+          - write memory
+      loop: '{{ d_ports }}'
+      register: vlan_output

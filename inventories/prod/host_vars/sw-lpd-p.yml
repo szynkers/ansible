@@ -1,0 +1,25 @@
+ansible_host: 10.10.250.13
+ansible_password: "{{ sw_lpd_p_pass }}"
+
+access_ports:
+  voip: [gi1/0/7]
+  kd: [gi1/0/23]
+  dr: [gi1/0/3]
+  
+trunk_ports:
+  ap: [gi1/0/1]
+  uplink: []
+  downlink: []
+
+kd_ports:
+  - gi1/0/23
+
+voip_ports:
+  - gi1/0/7
+
+d_ports:
+  - gi1/0/3
+  
+ap_ports:
+  - gi1/0/1
+
