@@ -3,6 +3,11 @@
   hosts: sw-gpd-s2
   gather_facts: false
   tasks:
+    - name: Run "show interfaces description"
+      community.ciscosmb.command:
+        commands:
+          - show system
+      register: iface_out
     - name: Show resolved host variables
       debug:
         msg:
