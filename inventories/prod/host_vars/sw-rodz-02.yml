@@ -1,3 +1,4 @@
+ansible_host: sw-rodz-02
 ansible_user: lszymkowiak
 ansible_password: !vault |
           $ANSIBLE_VAULT;1.1;AES256
