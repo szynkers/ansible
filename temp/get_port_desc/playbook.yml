@@ -10,9 +10,3 @@
           - show system
       register: run_cfg
 
-  tasks:
-    - name: Run "show interfaces description"
-      community.ciscosmb.command:
-        commands:
-          - show interfaces description
-      register: iface_out
