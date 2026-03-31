@@ -6,8 +6,3 @@ ansible_password: !vault |
           37316535663435396339393533656665383336326136643363623861643766636563646632303464
           6238336438383934630a386263376339393839643931613064333732613863636438346462303036
           3234
-ansible_ssh_common_args: >-
-  -o StrictHostKeyChecking=no
-  -o UserKnownHostsFile=/dev/null
-  -o HostKeyAlgorithms=+ssh-rsa
-  -o PubkeyAcceptedAlgorithms=+ssh-rsa
