@@ -1,10 +1,12 @@
 
 - name: Debug host target
   hosts: sw-gpd-s2
-  debug:
-    msg:
-      - "inventory_hostname={{ inventory_hostname }}"
-      - "ansible_host={{ ansible_host | default('UNDEF') }}"
-      - "ansible_network_os={{ ansible_network_os | default('UNDEF') }}"
-      - "ansible_connection={{ ansible_connection | default('UNDEF') }}"
-
+  gather_facts: false
+  tasks:
+    - name: Show resolved host variables
+      debug:
+        msg:
+          - "inventory_hostname={{ inventory_hostname }}"
+          - "ansible_host={{ ansible_host | default('UNDEF') }}"
+          - "ansible_network_os={{ ansible_network_os | default('UNDEF') }}"
+          - "ansible_connection={{ ansible_connection | default('UNDEF') }}"
