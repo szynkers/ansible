@@ -1,11 +1,12 @@
 ---
 
 - name: Uruchom "show startup-config"
-    hosts: switches
+    hosts: sw-gpd-s2
     ansible.netcommon.cli_command:
       command: show startup-config
     register: startup_cfg
 - name: Debug host target
+  hosts: sw-gpd-s2
   debug:
     msg:
       - "inventory_hostname={{ inventory_hostname }}"
