@@ -1,4 +1,9 @@
 ---
+
+- name: Uruchom "show startup-config"
+    ansible.netcommon.cli_command:
+      command: show startup-config
+    register: startup_cfg
 - name: Debug host target
   debug:
     msg:
