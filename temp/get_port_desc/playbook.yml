@@ -1,6 +1,7 @@
 ---
 
 - name: Uruchom "show startup-config"
+    hosts: switches
     ansible.netcommon.cli_command:
       command: show startup-config
     register: startup_cfg
