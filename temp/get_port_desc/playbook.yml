@@ -11,8 +11,8 @@
           - "ansible_host={{ ansible_host | default('UNDEF') }}"
           - "ansible_network_os={{ ansible_network_os | default('UNDEF') }}"
           - "ansible_connection={{ ansible_connection | default('UNDEF') }}"
-      - name: Run "show interfaces description"
-        community.ciscosmb.command:
-          commands:
-            - show system
-        register: iface_out
+    - name: Run "show interfaces description"
+      community.ciscosmb.command:
+        commands:
+          - show system
+      register: iface_out
