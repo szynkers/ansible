@@ -2,7 +2,6 @@
 - name: Debug host target
   hosts: switches
   gather_facts: false
-  serial: 1
   tasks:
 
     - name: Show resolved host variables
