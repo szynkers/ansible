@@ -5,8 +5,8 @@
   vars:
     out_file: ./wireguard_peers.csv
     router_host: 10.10.250.1
-    router_user: lszymkowiak
-    router_pass: Wh!t3W0lf66^
+    router_user: 
+    router_pass: 
 
   tasks:
     - name: Pobierz WireGuard peers przez API (bez parsowania CLI)
