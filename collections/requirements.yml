@@ -1,0 +1,6 @@
+collections:
+  - name: community.ciscosmb
+  - name: ansible.netcommon
+    version: ">=3.3.0"
+  - name: community.network
+    version: ">=4.3.0"
