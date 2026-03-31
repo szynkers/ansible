@@ -4,7 +4,7 @@
   gather_facts: no
 
   tasks:
-    - name: Run "show interfaces description"
+    - name: Run "show system"
       community.ciscosmb.command:
         commands:
           - show system
