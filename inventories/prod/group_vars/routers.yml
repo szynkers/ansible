@@ -3,4 +3,5 @@ ansible_network_os: community.network.routeros
 ansible_user: admin
 ansible_ssh_pass: ""
 ansible_ssh_common_args: >-
-  -o PubkeyAuthentication=no -o PreferredAuthentications=password
+  -o PubkeyAuthentication=no 
+  -o PreferredAuthentications=password
