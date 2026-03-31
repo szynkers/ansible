@@ -1,4 +1,4 @@
-ansible_host: 10.10.250.15
+ansible_host: sw-lpd-z-sa
 ansible_password: !vault |
           $ANSIBLE_VAULT;1.1;AES256
           66376633373864323638623866313231343536333933616333623434656265343561353535643338
