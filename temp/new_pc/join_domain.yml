@@ -2,9 +2,9 @@
   hosts: windows
   gather_facts: no
   vars:
-    domain_name: "echo.pl"
-    domain_user: "ECHO\\lszymkowiak"
-    domain_password: "66^Triger66^"
+    domain_name: ""
+    domain_user: ""
+    domain_password: ""
 
   tasks:
     - name: Ustaw hostname
