@@ -4,29 +4,7 @@
   gather_facts: false
   tasks:
     - name: Show connection variables
-      debug:
-        msg:
-          - "inventory_hostname={{ inventory_hostname }}"
-          - "ansible_host={{ ansible_host | default('UNDEF') }}"
-          - "ansible_user={{ ansible_user | default('UNDEF') }}"
-          - "ansible_port={{ ansible_port | default('UNDEF') }}"
-          - "ansible_network_os={{ ansible_network_os | default('UNDEF') }}"
-          - "ansible_connection={{ ansible_connection | default('UNDEF') }}"
-          - "ansible_ssh_common_args={{ ansible_ssh_common_args | default('UNDEF') }}"
-          - "ansible_paramiko_proxy_command={{ ansible_paramiko_proxy_command | default('UNDEF') }}"
-
-    - name: Resolve exactly what Ansible will use
-      delegate_to: localhost
-      changed_when: false
-      shell: |
-        python3 - <<'PY'
-        import socket
-        host = {{ (ansible_host | default(inventory_hostname)) | to_json }}
-        print("HOST_REPR=", repr(host))
-        print(socket.getaddrinfo(host, 22, type=socket.SOCK_STREAM))
-        PY
-      register: py_resolve
-
-    - name: Show Python resolve result
-      debug:
-        var: py_resolve.stdout_lines
+      community.ciscosmb.command:
+        commands:
+          - show system
+      register: iface_out
