@@ -1,6 +1,6 @@
 
 - name: Debug host target
-  hosts: sw-gpd-s2
+  hosts: switches
   gather_facts: false
   tasks:
 
