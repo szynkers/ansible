@@ -1,4 +1,4 @@
-ansible_host: 10.10.250.25
+ansible_host: sw-gpd-ser-sw
 ansible_password: !vault |
           $ANSIBLE_VAULT;1.1;AES256
           31383634653331336561373636356166313136313635333134383962383565303737383833336435
