@@ -4,8 +4,8 @@
 
   vars:
     out_file: ./wireguard_peers.csv
-    ansible_user: lszymkowiak
-    ansible_password: Wh!t3W0lf66^
+    ansible_user: 
+    ansible_password: 
     ansible_connection: ansible.netcommon.network_cli
     ansible_network_os: community.network.routeros
 
