@@ -1,6 +1,6 @@
 ---
 - name: Export Cisco SMB interface descriptions to CSV
-  hosts: sw-gpd-ser-eth
+  hosts: switches
   gather_facts: no
 
   tasks:
