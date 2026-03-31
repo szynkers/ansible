@@ -1,12 +1,9 @@
 ---
-- name: Export Cisco SMB interface descriptions to CSV
-  hosts: sw-gpd-s2
-  gather_facts: no
-
-  tasks:
-    - name: Run "show system"
-      community.ciscosmb.command:
-        commands:
-          - show system
-      register: run_cfg
+- name: Debug host target
+  debug:
+    msg:
+      - "inventory_hostname={{ inventory_hostname }}"
+      - "ansible_host={{ ansible_host | default('UNDEF') }}"
+      - "ansible_network_os={{ ansible_network_os | default('UNDEF') }}"
+      - "ansible_connection={{ ansible_connection | default('UNDEF') }}"
 
