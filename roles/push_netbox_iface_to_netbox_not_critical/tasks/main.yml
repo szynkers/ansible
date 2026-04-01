@@ -68,13 +68,13 @@
   debug:
     var: nb_iface_cfg_map
 
-- name: Pokaż pominięte porty z tagiem critical port
+- name: Pokaż pominięte porty z tagiem critical-port
   debug:
-    msg: "Pomijam {{ item.key }} - port ma tag critical port"
+    msg: "Pomijam {{ item.key }} - port ma tag critical-port"
   loop: "{{ nb_iface_cfg_map | dict2items }}"
   loop_control:
     label: "{{ item.key }}"
-  when: "'critical port' in (item.value.tags | default([]))"
+  when: "'critical-port' in (item.value.tags | default([]))"
 
 - name: Skonfiguruj porty zgodnie z NetBox
   community.ciscosmb.command:
@@ -132,4 +132,4 @@
     label: "{{ item.key }}"
   when:
     - not ansible_check_mode
-    - "'critical port' not in (item.value.tags | default([]))"
+    - "'critical-port' not in (item.value.tags | default([]))"
