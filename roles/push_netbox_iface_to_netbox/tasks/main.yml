@@ -1,5 +1,6 @@
 - name: Pobierz interfejsy urządzenia z NetBox (REST)
   delegate_to: localhost
+  check_mode: false
   ansible.builtin.uri:
     url: "{{ netbox_url }}/api/dcim/interfaces/?device={{ inventory_hostname | urlencode }}&limit=0"
     method: GET
@@ -10,6 +11,7 @@
   register: nb_ifaces_raw
 
 - name: Zbuduj mapę konfiguracji portów z NetBox
+  check_mode: false
   set_fact:
     nb_iface_cfg_map: "{{ nb_iface_cfg_map | default({}) | combine({ item.name: iface_cfg }) }}"
   vars:
