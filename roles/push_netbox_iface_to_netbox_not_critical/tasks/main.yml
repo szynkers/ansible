@@ -1,0 +1,135 @@
+- name: Pobierz interfejsy urządzenia z NetBox (REST)
+  delegate_to: localhost
+  check_mode: false
+  ansible.builtin.uri:
+    url: "{{ netbox_url }}/api/dcim/interfaces/?device={{ inventory_hostname | urlencode }}&limit=0"
+    method: GET
+    headers:
+      Authorization: "Token {{ netbox_token }}"
+      Accept: "application/json"
+    validate_certs: false
+  register: nb_ifaces_raw
+
+- name: Zbuduj mapę konfiguracji portów z NetBox
+  check_mode: false
+  set_fact:
+    nb_iface_cfg_map: "{{ nb_iface_cfg_map | default({}) | combine({ item.name: iface_cfg }) }}"
+  vars:
+    iface_desc: >-
+      {%- if item.description is defined and (item.description | string | trim | length > 0) -%}
+      {{ item.description | trim }}
+      {%- elif item.connected_endpoints is defined and item.connected_endpoints and item.connected_endpoints | length > 0 -%}
+      {{ item.connected_endpoints[0].device.name }}
+      {%- else -%}
+      {{ '' }}
+      {%- endif -%}
+
+    iface_mode: "{{ item.mode.value | default('') }}"
+
+    iface_access_vlan: >-
+      {%- if item.untagged_vlan is defined and item.untagged_vlan -%}
+      {{ item.untagged_vlan.vid }}
+      {%- else -%}
+      {{ '' }}
+      {%- endif -%}
+
+    iface_trunk_vlans: >-
+      {{
+        item.tagged_vlans | default([])
+        | map(attribute='vid')
+        | map('string')
+        | list
+        | join(',')
+      }}
+
+    iface_tags: >-
+      {{
+        item.tags | default([])
+        | map(attribute='name')
+        | map('lower')
+        | list
+      }}
+
+    iface_cfg:
+      description: "{{ iface_desc }}"
+      mode: "{{ iface_mode }}"
+      access_vlan: "{{ iface_access_vlan }}"
+      trunk_vlans: "{{ iface_trunk_vlans }}"
+      tags: "{{ iface_tags }}"
+  loop: "{{ nb_ifaces_raw.json.results | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Upewnij się, że mapa istnieje
+  set_fact:
+    nb_iface_cfg_map: "{{ nb_iface_cfg_map | default({}) }}"
+
+- name: Debug - mapa konfiguracji portów
+  debug:
+    var: nb_iface_cfg_map
+
+- name: Pokaż pominięte porty z tagiem critical port
+  debug:
+    msg: "Pomijam {{ item.key }} - port ma tag critical port"
+  loop: "{{ nb_iface_cfg_map | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when: "'critical port' in (item.value.tags | default([]))"
+
+- name: Skonfiguruj porty zgodnie z NetBox
+  community.ciscosmb.command:
+    commands: "{{ port_commands }}"
+  vars:
+    port_commands: >-
+      {{
+        ['conf t', 'int ' ~ item.key]
+        +
+        (
+          ['description ' ~ item.value.description]
+          if item.value.description | string | trim | length > 0
+          else
+          []
+        )
+        +
+        (
+          ['switchport mode access']
+          if item.value.mode == 'access'
+          else
+          ['switchport mode trunk']
+          if item.value.mode == 'tagged'
+          else
+          []
+        )
+        +
+        (
+          ['switchport access vlan ' ~ (item.value.access_vlan | string)]
+          if item.value.mode == 'access'
+             and (item.value.access_vlan | string | trim | length > 0)
+          else
+          []
+        )
+        +
+        (
+          ['switchport trunk native vlan ' ~ (item.value.access_vlan | string)]
+          if item.value.mode == 'tagged'
+             and (item.value.access_vlan | string | trim | length > 0)
+          else
+          []
+        )
+        +
+        (
+          ['switchport trunk allowed vlan ' ~ item.value.trunk_vlans]
+          if item.value.mode == 'tagged'
+             and (item.value.trunk_vlans | string | trim | length > 0)
+          else
+          []
+        )
+        +
+        ['end']
+      }}
+  loop: "{{ nb_iface_cfg_map | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - not ansible_check_mode
+    - "'critical port' not in (item.value.tags | default([]))"
