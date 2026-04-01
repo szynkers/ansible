@@ -2,5 +2,5 @@
   hosts: sw-prod-03
   gather_facts: false
   roles:
-    - pull_netbox_to_cisco
+    - push_netbox_iface_to_netbox
     - save_ciscosmb_config
