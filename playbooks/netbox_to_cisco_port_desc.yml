@@ -1,4 +1,4 @@
-- name: Synchro NetBox - ustaw opisy portów interfejsów Cisco SMB
+- name: Synchro NetBox - ustawia state, mode, vlan, opis interfejsów Cisco SMB
   hosts: switches
   gather_facts: false
   roles:
