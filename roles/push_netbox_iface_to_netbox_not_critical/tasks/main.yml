@@ -15,23 +15,35 @@
   set_fact:
     nb_iface_cfg_map: "{{ nb_iface_cfg_map | default({}) | combine({ item.name: iface_cfg }) }}"
   vars:
+    iface_connected_device_name: >-
+      {{
+        (
+          item.connected_endpoints | default([])
+          | map(attribute='device', default={})
+          | map(attribute='name', default='')
+          | map('string')
+          | map('trim')
+          | reject('equalto', '')
+          | list
+          | first
+        ) | default('')
+      }}
+
     iface_desc: >-
-      {%- if item.description is defined and (item.description | string | trim | length > 0) -%}
-      {{ item.description | trim }}
-      {%- elif item.connected_endpoints is defined and item.connected_endpoints and item.connected_endpoints | length > 0 -%}
-      {{ item.connected_endpoints[0].device.name }}
-      {%- else -%}
-      {{ '' }}
-      {%- endif -%}
+      {{
+        iface_connected_device_name
+        if (iface_connected_device_name | length > 0)
+        else (item.description | default('') | string | trim)
+      }}
 
     iface_mode: "{{ item.mode.value | default('') }}"
 
     iface_access_vlan: >-
-      {%- if item.untagged_vlan is defined and item.untagged_vlan -%}
-      {{ item.untagged_vlan.vid }}
-      {%- else -%}
-      {{ '' }}
-      {%- endif -%}
+      {{
+        item.untagged_vlan.vid
+        if (item.untagged_vlan is defined and item.untagged_vlan)
+        else ''
+      }}
 
     iface_trunk_vlans: >-
       {{
@@ -78,6 +90,82 @@
   loop_control:
     label: "{{ item.key }}"
   when: "'critical-port' in (item.value.tags | default([]))"
+
+- name: Debug - komendy dla portów
+  debug:
+    msg: "{{ port_commands }}"
+  vars:
+    port_commands: >-
+      {{
+        ['conf t', 'int ' ~ item.key]
+        +
+        (
+          ['description "' ~ (item.value.description | replace('"', '')) ~ '"']
+          if item.value.description | string | trim | length > 0
+          else
+          ['no description']
+        )
+        +
+        (
+          ['switchport mode access']
+          if item.value.mode == 'access'
+          else
+          ['switchport mode trunk']
+          if item.value.mode == 'tagged'
+          else
+          []
+        )
+        +
+        (
+          (
+            ['switchport access vlan ' ~ (item.value.access_vlan | string)]
+            if item.value.access_vlan | string | trim | length > 0
+            else
+            ['no switchport access vlan']
+          )
+          if item.value.mode == 'access'
+          else
+          []
+        )
+        +
+        (
+          (
+            ['switchport trunk native vlan ' ~ (item.value.access_vlan | string)]
+            if item.value.access_vlan | string | trim | length > 0
+            else
+            ['no switchport trunk native vlan']
+          )
+          if item.value.mode == 'tagged'
+          else
+          []
+        )
+        +
+        (
+          (
+            ['switchport trunk allowed vlan ' ~ item.value.trunk_vlans]
+            if item.value.trunk_vlans | string | trim | length > 0
+            else
+            ['no switchport trunk allowed vlan']
+          )
+          if item.value.mode == 'tagged'
+          else
+          []
+        )
+        +
+        (
+          ['no shutdown']
+          if item.value.enabled | default(true) | bool
+          else
+          ['shutdown']
+        )
+        +
+        ['end']
+      }}
+  loop: "{{ nb_iface_cfg_map | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - "'critical-port' not in (item.value.tags | default([]))"
 
 - name: Skonfiguruj porty zgodnie z NetBox
   community.ciscosmb.command:
