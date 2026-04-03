@@ -50,12 +50,15 @@
         | list
       }}
 
+    iface_enabled: "{{ item.enabled | default(true) | bool }}"
+
     iface_cfg:
       description: "{{ iface_desc }}"
       mode: "{{ iface_mode }}"
       access_vlan: "{{ iface_access_vlan }}"
       trunk_vlans: "{{ iface_trunk_vlans }}"
       tags: "{{ iface_tags }}"
+      enabled: "{{ iface_enabled }}"
   loop: "{{ nb_ifaces_raw.json.results | default([]) }}"
   loop_control:
     label: "{{ item.name }}"
@@ -88,7 +91,7 @@
           ['description ' ~ item.value.description]
           if item.value.description | string | trim | length > 0
           else
-          []
+          ['no description']
         )
         +
         (
@@ -102,27 +105,46 @@
         )
         +
         (
-          ['switchport access vlan ' ~ (item.value.access_vlan | string)]
+          (
+            ['switchport access vlan ' ~ (item.value.access_vlan | string)]
+            if item.value.access_vlan | string | trim | length > 0
+            else
+            ['no switchport access vlan']
+          )
           if item.value.mode == 'access'
-             and (item.value.access_vlan | string | trim | length > 0)
           else
           []
         )
         +
         (
-          ['switchport trunk native vlan ' ~ (item.value.access_vlan | string)]
+          (
+            ['switchport trunk native vlan ' ~ (item.value.access_vlan | string)]
+            if item.value.access_vlan | string | trim | length > 0
+            else
+            ['no switchport trunk native vlan']
+          )
           if item.value.mode == 'tagged'
-             and (item.value.access_vlan | string | trim | length > 0)
           else
           []
         )
         +
         (
-          ['switchport trunk allowed vlan ' ~ item.value.trunk_vlans]
+          (
+            ['switchport trunk allowed vlan ' ~ item.value.trunk_vlans]
+            if item.value.trunk_vlans | string | trim | length > 0
+            else
+            ['no switchport trunk allowed vlan']
+          )
           if item.value.mode == 'tagged'
-             and (item.value.trunk_vlans | string | trim | length > 0)
           else
           []
+        )
+        +
+        (
+          ['no shutdown']
+          if item.value.enabled | default(true) | bool
+          else
+          ['shutdown']
         )
         +
         ['end']
