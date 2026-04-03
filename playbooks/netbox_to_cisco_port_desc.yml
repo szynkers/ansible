@@ -3,4 +3,4 @@
   gather_facts: false
   roles:
     - push_netbox_iface_to_netbox_not_critical
-    - save_ciscosmb_config
+    #- save_ciscosmb_config
