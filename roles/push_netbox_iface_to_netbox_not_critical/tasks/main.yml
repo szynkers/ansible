@@ -88,7 +88,7 @@
         ['conf t', 'int ' ~ item.key]
         +
         (
-          ['description ' ~ item.value.description]
+          ['description "' ~ (item.value.description | replace('"', '')) ~ '"']
           if item.value.description | string | trim | length > 0
           else
           ['no description']
