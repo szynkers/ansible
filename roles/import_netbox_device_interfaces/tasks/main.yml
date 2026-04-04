@@ -1,0 +1,13 @@
+---
+- name: Pobierz interfejsy urządzenia z NetBox (REST)
+  delegate_to: localhost
+  check_mode: false
+  ansible.builtin.uri:
+    url: >-
+      {{ netbox_url }}/api/dcim/interfaces/?device={{ inventory_hostname | urlencode }}&limit={{ netbox_device_interfaces_limit }}
+    method: GET
+    headers:
+      Authorization: "Token {{ netbox_token }}"
+      Accept: "application/json"
+    validate_certs: "{{ netbox_device_interfaces_validate_certs }}"
+  register: nb_ifaces_raw

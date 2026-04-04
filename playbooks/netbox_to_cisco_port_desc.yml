@@ -2,5 +2,6 @@
   hosts: switches
   gather_facts: false
   roles:
-    - push_netbox_iface_to_netbox
+    - import_netbox_device_interfaces
+    - push_iface_cfg_to_ciscosmb
     #- save_ciscosmb_config

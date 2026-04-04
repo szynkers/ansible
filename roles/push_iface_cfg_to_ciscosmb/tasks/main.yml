@@ -1,0 +1,11 @@
+- name: Zbuduj mapę konfiguracji portów z NetBox
+  ansible.builtin.import_tasks: build_port_cfg_map.yml
+
+- name: Debug informacji o portach
+  ansible.builtin.import_tasks: debug.yml
+
+- name: Skonfiguruj opisy portów
+  ansible.builtin.import_tasks: configure_descriptions.yml
+
+- name: Skonfiguruj VLANy, mode i stan portów
+  ansible.builtin.import_tasks: configure_switching.yml

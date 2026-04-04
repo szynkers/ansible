@@ -1,0 +1,91 @@
+---
+- name: Debug - mapa konfiguracji portów
+  ansible.builtin.debug:
+    var: nb_iface_cfg_map
+  when: ciscosmb_port_sync_debug_map | bool
+
+- name: Pokaż porty z tagiem pomijanym
+  ansible.builtin.debug:
+    msg: "Port {{ item.key }} ma tag '{{ ciscosmb_port_sync_skip_tag }}' i zostanie pominięty w konfiguracji."
+  loop: "{{ nb_iface_cfg_map | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - ciscosmb_port_sync_skip_tag in (item.value.tags | default([]))
+
+- name: Debug - komendy dla portów
+  ansible.builtin.debug:
+    msg: "{{ port_commands }}"
+  vars:
+    port_commands: >-
+      {{
+        ['conf t', 'int ' ~ item.key]
+        +
+        (
+          ['description "' ~ (item.value.description | replace('"', '')) ~ '"']
+          if item.value.description | string | trim | length > 0
+          else
+          ['no description']
+        )
+        +
+        (
+          ['switchport mode access']
+          if item.value.mode == 'access'
+          else
+          ['switchport mode trunk']
+          if item.value.mode == 'tagged'
+          else
+          []
+        )
+        +
+        (
+          (
+            ['switchport access vlan ' ~ (item.value.access_vlan | string)]
+            if item.value.access_vlan | string | trim | length > 0
+            else
+            ['no switchport access vlan']
+          )
+          if item.value.mode == 'access'
+          else
+          []
+        )
+        +
+        (
+          (
+            ['switchport trunk native vlan ' ~ (item.value.access_vlan | string)]
+            if item.value.access_vlan | string | trim | length > 0
+            else
+            ['no switchport trunk native vlan']
+          )
+          if item.value.mode == 'tagged'
+          else
+          []
+        )
+        +
+        (
+          (
+            ['switchport trunk allowed vlan ' ~ item.value.trunk_vlans]
+            if item.value.trunk_vlans | string | trim | length > 0
+            else
+            ['no switchport trunk allowed vlan']
+          )
+          if item.value.mode == 'tagged'
+          else
+          []
+        )
+        +
+        (
+          ['no shutdown']
+          if item.value.enabled | default(true) | bool
+          else
+          ['shutdown']
+        )
+        +
+        ['end']
+      }}
+  loop: "{{ nb_iface_cfg_map | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - ciscosmb_port_sync_debug_commands | bool
+    - ciscosmb_port_sync_skip_tag not in (item.value.tags | default([]))

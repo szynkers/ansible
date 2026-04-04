@@ -8,3 +8,6 @@ netbox_token: !vault |
           36343237313430646431363631613364323531653930663866616537363833653761346461396439
           6435633135363164343833373833643331336565623062663762
 ansible_command_timeout: 120
+ciscosmb_port_sync_skip_tag: "critical-port"
+ciscosmb_port_sync_debug_map: true
+ciscosmb_port_sync_debug_commands: true

@@ -1,0 +1,69 @@
+---
+- name: Zbuduj mapę konfiguracji portów z NetBox
+  check_mode: false
+  ansible.builtin.set_fact:
+    nb_iface_cfg_map: "{{ nb_iface_cfg_map | default({}) | combine({ item.name: iface_cfg }) }}"
+  vars:
+    iface_connected_device_name: >-
+      {{
+        (
+          item.connected_endpoints | default([])
+          | map(attribute='device', default={})
+          | map(attribute='name', default='')
+          | map('string')
+          | map('trim')
+          | reject('equalto', '')
+          | list
+          | first
+        ) | default('')
+      }}
+
+    iface_desc: >-
+      {{
+        iface_connected_device_name
+        if (iface_connected_device_name | length > 0)
+        else (item.description | default('') | string | trim)
+      }}
+
+    iface_mode: "{{ item.mode.value | default('') }}"
+
+    iface_access_vlan: >-
+      {{
+        item.untagged_vlan.vid
+        if (item.untagged_vlan is defined and item.untagged_vlan)
+        else ''
+      }}
+
+    iface_trunk_vlans: >-
+      {{
+        item.tagged_vlans | default([])
+        | map(attribute='vid')
+        | map('string')
+        | list
+        | join(',')
+      }}
+
+    iface_tags: >-
+      {{
+        item.tags | default([])
+        | map(attribute='name')
+        | map('lower')
+        | list
+      }}
+
+    iface_enabled: "{{ item.enabled | default(true) | bool }}"
+
+    iface_cfg:
+      description: "{{ iface_desc }}"
+      mode: "{{ iface_mode }}"
+      access_vlan: "{{ iface_access_vlan }}"
+      trunk_vlans: "{{ iface_trunk_vlans }}"
+      tags: "{{ iface_tags }}"
+      enabled: "{{ iface_enabled }}"
+  loop: "{{ nb_ifaces_raw.json.results | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Upewnij się, że mapa istnieje
+  ansible.builtin.set_fact:
+    nb_iface_cfg_map: "{{ nb_iface_cfg_map | default({}) }}"

@@ -1,0 +1,23 @@
+---
+- name: Skonfiguruj opisy portów
+  community.ciscosmb.command:
+    commands: "{{ port_commands }}"
+  vars:
+    port_commands: >-
+      {{
+        ['conf t', 'int ' ~ item.key]
+        +
+        (
+          ['description "' ~ (item.value.description | replace('"', '')) ~ '"']
+          if item.value.description | string | trim | length > 0
+          else
+          ['no description']
+        )
+        +
+        ['end']
+      }}
+  loop: "{{ nb_iface_cfg_map | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - not ansible_check_mode
