@@ -1,0 +1,72 @@
+---
+- name: Zainicjalizuj listę portów do zmiany
+  ansible.builtin.set_fact:
+    changed_ports: []
+
+- name: Zbuduj listę portów wymagających zmian
+  ansible.builtin.set_fact:
+    changed_ports: "{{ changed_ports + [port_payload] }}"
+  vars:
+    desired: "{{ item.value }}"
+    current: "{{ current_iface_cfg_map[item.key] | default({}) }}"
+
+    desc_changed: >-
+      {{
+        (desired.description | default('') | string | trim)
+        !=
+        (current.description | default('') | string | trim)
+      }}
+
+    mode_changed: >-
+      {{
+        (desired.mode | default('') | string)
+        !=
+        (current.mode | default('') | string)
+      }}
+
+    access_vlan_changed: >-
+      {{
+        (desired.access_vlan | default('') | string)
+        !=
+        (current.access_vlan | default('') | string)
+      }}
+
+    trunk_vlans_changed: >-
+      {{
+        (desired.trunk_vlans | default('') | string | trim)
+        !=
+        (current.trunk_vlans | default('') | string | trim)
+      }}
+
+    enabled_changed: >-
+      {{
+        (desired.enabled | default(true) | bool)
+        !=
+        (current.enabled | default(true) | bool)
+      }}
+
+    port_changed: >-
+      {{
+        desc_changed
+        or mode_changed
+        or access_vlan_changed
+        or trunk_vlans_changed
+        or enabled_changed
+      }}
+
+    port_payload:
+      name: "{{ item.key }}"
+      desired: "{{ desired }}"
+      current: "{{ current }}"
+      diff:
+        description: "{{ desc_changed }}"
+        mode: "{{ mode_changed }}"
+        access_vlan: "{{ access_vlan_changed }}"
+        trunk_vlans: "{{ trunk_vlans_changed }}"
+        enabled: "{{ enabled_changed }}"
+  loop: "{{ nb_iface_cfg_map | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - ciscosmb_port_sync_skip_tag not in (item.value.tags | default([]))
+    - port_changed

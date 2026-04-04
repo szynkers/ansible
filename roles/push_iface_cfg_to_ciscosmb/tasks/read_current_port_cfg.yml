@@ -1,0 +1,63 @@
+---
+- name: Pobierz running-config
+  community.ciscosmb.command:
+    commands:
+      - show running-config
+  register: ciscosmb_running_config
+  check_mode: false
+
+- name: Wyciągnij tekst running-config
+  ansible.builtin.set_fact:
+    running_config_text: "{{ ciscosmb_running_config.stdout[0] | default('') }}"
+
+- name: Zainicjalizuj mapę aktualnej konfiguracji
+  ansible.builtin.set_fact:
+    current_iface_cfg_map: {}
+
+- name: Zbuduj mapę aktualnej konfiguracji z running-config
+  ansible.builtin.set_fact:
+    current_iface_cfg_map: "{{ current_iface_cfg_map | combine({ iface_name: iface_cfg }) }}"
+  vars:
+    iface_name: "{{ item | regex_search('^interface\\s+(\\S+)', '\\1', multiline=True) | first | default('') }}"
+    iface_desc: >-
+      {{
+        (item | regex_search('^\\s*description\\s+(.+)$', '\\1', multiline=True) | first | default(''))
+        | string | trim
+      }}
+    iface_mode_raw: >-
+      {{
+        item | regex_search('^\\s*switchport mode\\s+(access|trunk)$', '\\1', multiline=True) | first | default('')
+      }}
+    iface_mode: >-
+      {{
+        'access' if iface_mode_raw == 'access'
+        else 'tagged' if iface_mode_raw == 'trunk'
+        else ''
+      }}
+    iface_access_vlan: >-
+      {{
+        item | regex_search('^\\s*switchport access vlan\\s+(\\d+)$', '\\1', multiline=True) | first | default('')
+      }}
+    iface_native_vlan: >-
+      {{
+        item | regex_search('^\\s*switchport trunk native vlan\\s+(\\d+)$', '\\1', multiline=True) | first | default('')
+      }}
+    iface_trunk_vlans: >-
+      {{
+        item | regex_search('^\\s*switchport trunk allowed vlan\\s+(.+)$', '\\1', multiline=True) | first | default('')
+      }}
+    iface_shutdown: "{{ item is regex('(?m)^\\s*shutdown$') }}"
+    iface_cfg:
+      description: "{{ iface_desc }}"
+      mode: "{{ iface_mode }}"
+      access_vlan: "{{ iface_access_vlan if iface_mode == 'access' else iface_native_vlan }}"
+      trunk_vlans: "{{ iface_trunk_vlans | string | trim }}"
+      enabled: "{{ not iface_shutdown }}"
+  loop: >-
+    {{
+      running_config_text
+      | regex_findall('(?ms)^interface\\s+[^\\n]+\\n.*?(?=^interface\\s+|\\Z)')
+    }}
+  when: iface_name | length > 0
+  loop_control:
+    label: "{{ iface_name }}"

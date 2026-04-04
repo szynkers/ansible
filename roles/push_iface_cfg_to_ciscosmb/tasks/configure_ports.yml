@@ -1,0 +1,65 @@
+---
+- name: Skonfiguruj tylko porty z różnicami
+  community.ciscosmb.command:
+    commands: "{{ port_commands }}"
+  vars:
+    desired: "{{ item.desired }}"
+    diff: "{{ item.diff }}"
+    port_commands: >-
+      {{
+        ['conf t', 'int ' ~ item.name]
+        +
+        (
+          ['description "' ~ (desired.description | replace('"', '')) ~ '"']
+          if diff.description and (desired.description | string | trim | length > 0)
+          else ['no description']
+          if diff.description
+          else []
+        )
+        +
+        (
+          ['switchport mode access']
+          if diff.mode and desired.mode == 'access'
+          else ['switchport mode trunk']
+          if diff.mode and desired.mode == 'tagged'
+          else []
+        )
+        +
+        (
+          ['switchport access vlan ' ~ (desired.access_vlan | string)]
+          if desired.mode == 'access' and diff.access_vlan and (desired.access_vlan | string | trim | length > 0)
+          else ['no switchport access vlan']
+          if desired.mode == 'access' and diff.access_vlan
+          else []
+        )
+        +
+        (
+          ['switchport trunk native vlan ' ~ (desired.access_vlan | string)]
+          if desired.mode == 'tagged' and diff.access_vlan and (desired.access_vlan | string | trim | length > 0)
+          else ['no switchport trunk native vlan']
+          if desired.mode == 'tagged' and diff.access_vlan
+          else []
+        )
+        +
+        (
+          ['switchport trunk allowed vlan ' ~ desired.trunk_vlans]
+          if desired.mode == 'tagged' and diff.trunk_vlans and (desired.trunk_vlans | string | trim | length > 0)
+          else ['no switchport trunk allowed vlan']
+          if desired.mode == 'tagged' and diff.trunk_vlans
+          else []
+        )
+        +
+        (
+          ['no shutdown']
+          if diff.enabled and (desired.enabled | bool)
+          else ['shutdown']
+          if diff.enabled
+          else []
+        )
+        + ['end']
+      }}
+  loop: "{{ changed_ports | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - not ansible_check_mode
