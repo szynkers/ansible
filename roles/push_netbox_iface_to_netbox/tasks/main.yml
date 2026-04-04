@@ -182,6 +182,7 @@
           else
           ['no description']
         )
+      }}
   loop: "{{ nb_iface_cfg_map | dict2items }}"
   loop_control:
     label: "{{ item.key }}"
