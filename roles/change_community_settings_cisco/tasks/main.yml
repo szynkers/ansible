@@ -1,0 +1,13 @@
+- name: Usuń SNMP
+  community.ciscosmb.command:
+    commands:
+      - conf t
+      - "no snmp-server user mirjan24 v3"
+      - "no snmp-server group m24 v3"
+      - end
+      
+- name: Zapisz konfigurację (raz)
+  community.ciscosmb.command:
+    commands:
+      - write memory
+  when: save_config | bool
