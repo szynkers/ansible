@@ -1,0 +1,5 @@
+- name: Zmiana ustawien community na switchach 
+  hosts: switches
+  gather_facts: false
+  roles:
+    - change_community_settings_cisco
