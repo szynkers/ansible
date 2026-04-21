@@ -10,4 +10,3 @@
   community.ciscosmb.command:
     commands:
       - write memory
-  when: save_config | bool
