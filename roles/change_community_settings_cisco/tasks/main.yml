@@ -4,7 +4,7 @@
       - conf t
       - "no snmp-server community netbox 192.168.2.70"
       - "snmp-server group m24 v3 auth read DefaultSuper"
-      - "snmp-server user netbox m24 v3 auth sha 6wJ5U2+?PX&uJsn+_2"
+      - "snmp-server user netbox m24 v3 auth sha <password>"
       - end
       
 - name: Zapisz konfigurację (raz)
